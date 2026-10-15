@@ -57,6 +57,34 @@ n_years = len(yearly)
 start_year = int(yearly["연도"].min())
 end_year = int(yearly["연도"].max())
 
+# 최근 20년(남은 데이터의 마지막 20년 구간)만으로 따로 구한 직선
+RECENT_SPAN = 20
+recent = yearly[yearly["연도"] > end_year - RECENT_SPAN]
+recent_n = len(recent)
+recent_start = int(recent["연도"].min())
+if recent_n >= 2:
+    recent_slope, recent_intercept = np.polyfit(
+        recent["연도"].to_numpy(dtype=float),
+        recent["연평균기온"].to_numpy(dtype=float),
+        1,
+    )
+else:
+    recent_slope, recent_intercept = None, None
+
+full_per_100 = slope * 100
+
+
+def big_card(title: str, value: str, sub: str) -> str:
+    return f"""
+    <div style="text-align:center; padding:0.8rem 0.4rem; border:1px solid rgba(128,128,128,0.35);
+                border-radius:12px;">
+        <div style="font-size:0.95rem; opacity:0.75;">{title}</div>
+        <div style="font-size:2.6rem; font-weight:800; line-height:1.25;">{value}</div>
+        <div style="font-size:0.85rem; opacity:0.65;">{sub}</div>
+    </div>
+    """
+
+
 # ── 사용한 데이터 안내 ──────────────────────────────
 c1, c2, c3 = st.columns(3)
 c1.metric("직선을 만든 해의 개수", f"{n_years}개")
@@ -112,6 +140,18 @@ fig.add_trace(
         hovertemplate="%{x}년 예상<br>%{y:.2f} °C<extra></extra>",
     )
 )
+if recent_slope is not None:
+    rx = np.array([recent_start, end_year], dtype=float)
+    fig.add_trace(
+        go.Scatter(
+            x=rx,
+            y=recent_slope * rx + recent_intercept,
+            mode="lines",
+            name=f"최근 {RECENT_SPAN}년 직선",
+            line=dict(width=3, dash="dash"),
+            hovertemplate="%{x:.0f}년<br>%{y:.2f} °C<extra></extra>",
+        )
+    )
 fig.update_layout(
     title="서울 연평균기온과 회귀 직선",
     xaxis_title="연도",
@@ -123,10 +163,56 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ── 상관계수와 직선 식 ──────────────────────────────
-m1, m2 = st.columns(2)
-m1.metric("상관계수 (연도와 연평균기온)", f"{r:.3f}")
-m2.metric("직선의 기울기", f"{slope * 10:+.2f} °C / 10년")
-st.caption(f"회귀 직선: 기온 = {slope:.4f} × 연도 + ({intercept:.2f})")
+st.metric("상관계수 (연도와 연평균기온)", f"{r:.3f}")
+st.caption(f"회귀 직선(전체 기간): 기온 = {slope:.4f} × 연도 + ({intercept:.2f})")
+
+# ── 기울기: 100년에 몇 도 오르는가 ───────────────────
+st.subheader("100년에 몇 도 오를까?")
+st.markdown(
+    f"""
+    <div style="text-align:center; padding:0.8rem 0;">
+        <div style="font-size:1.05rem; opacity:0.75;">전체 기간({start_year}~{end_year}년) 직선 기준</div>
+        <div style="font-size:4rem; font-weight:800; line-height:1.2;">{full_per_100:+.1f} °C / 100년</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown("##### 전체 기간 vs 최근 20년")
+col_a, col_b = st.columns(2)
+with col_a:
+    st.markdown(
+        big_card(
+            "전체 기간",
+            f"{full_per_100:+.1f} °C",
+            f"100년당 · {start_year}~{end_year}년 · {n_years}개 해",
+        ),
+        unsafe_allow_html=True,
+    )
+with col_b:
+    if recent_slope is not None:
+        st.markdown(
+            big_card(
+                f"최근 {RECENT_SPAN}년",
+                f"{recent_slope * 100:+.1f} °C",
+                f"100년당 · {recent_start}~{end_year}년 · {recent_n}개 해",
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.warning("최근 20년 구간에 쓸 수 있는 해가 부족합니다.")
+
+if recent_slope is not None and full_per_100 != 0:
+    diff = recent_slope * 100 - full_per_100
+    ratio = recent_slope / slope
+    st.write(
+        f"최근 {RECENT_SPAN}년의 상승 속도는 전체 기간보다 100년당 **{diff:+.1f} °C** 차이가 나며, "
+        f"전체 기간의 약 **{ratio:.1f}배**입니다."
+    )
+st.caption(
+    f"'100년당' 값은 연간 기울기에 100을 곱한 것입니다. 최근 {RECENT_SPAN}년은 해가 {recent_n}개뿐이라 "
+    "기울기가 해마다의 들쭉날쭉함에 크게 흔들릴 수 있습니다."
+)
 
 st.info(
     f"기준 기간은 {LAST_YEAR}년까지이며, 관측일이 {MIN_DAYS}일 미만인 해는 제외했습니다. "
